@@ -147,6 +147,18 @@ lazy val `quill-cassandra` =
     )
     .dependsOn(`quill-core-jvm` % "compile->compile;test->test")
 
+lazy val `quill-neo4j` =
+  (project in file("quill-neo4j"))
+    .settings(commonSettings: _*)
+    .settings(mimaSettings: _*)
+    .settings(
+      fork in Test := true,
+      libraryDependencies ++= Seq(
+         "org.neo4j.driver" % "neo4j-java-driver" % "1.4.0-rc1"
+      )
+    )
+    .dependsOn(`quill-core-jvm` % "compile->compile;test->test")
+
 lazy val `tut-sources` = Seq(
   "CASSANDRA.md",
   "README.md"
