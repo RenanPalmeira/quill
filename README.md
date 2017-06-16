@@ -1087,6 +1087,7 @@ Quill provides mirror context for test purposes. Instead of running the query, m
 - `io.getquill.MirrorContext`: Mirrors the quotation AST
 - `io.getquill.SqlMirrorContext`: Mirrors the SQL query
 - `io.getquill.CassandraMirrorContext`: Mirrors the CQL query
+- `io.getquill.Neo4jMirrorContext`: Mirrors the Cypher query
 
 Dependent contexts
 ------------------
