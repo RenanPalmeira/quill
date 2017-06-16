@@ -12,7 +12,7 @@ object CypherIdiom extends CypherIdiom
 
 trait CypherIdiom extends Idiom {
 
-  override def liftingPlaceholder(idx: Int) = "?"
+  override def liftingPlaceholder(idx: Int) = ""
 
   override def prepareForProbing(string: String) = string
 
@@ -43,8 +43,8 @@ trait CypherIdiom extends Idiom {
     }
 
   implicit def cypherQueryTokenizer(implicit strategy: NamingStrategy): Tokenizer[CypherQuery] = Tokenizer[CypherQuery] {
-    case CypherQuery(node, label) =>
-      stmt"MATCH (${node.token}:${node.token}) RETURN ${node.token}"
+    case CypherQuery(node, select) =>
+      stmt"MATCH ${node.token} RETURN ${select.token}"
   }
 
   implicit def entityTokenizer(implicit strategy: NamingStrategy): Tokenizer[Entity] = Tokenizer[Entity] {
@@ -58,13 +58,13 @@ trait CypherIdiom extends Idiom {
   implicit def operationTokenizer(implicit strategy: NamingStrategy): Tokenizer[Operation] = Tokenizer[Operation] {
     case BinaryOperation(a, op @ SetOperator.`contains`, b) => stmt"${b.token} ${op.token} (${a.token})"
     case BinaryOperation(a, op, b)                          => stmt"${a.token} ${op.token} ${b.token}"
-    case e: UnaryOperation                                  => fail(s"Cql doesn't support unary operations. Found: '$e'")
-    case e: FunctionApply                                   => fail(s"Cql doesn't support functions. Found: '$e'")
+    case e: UnaryOperation                                  => fail(s"Cypher doesn't support unary operations. Found: '$e'")
+    case e: FunctionApply                                   => fail(s"Cypher doesn't support functions. Found: '$e'")
   }
 
   implicit val aggregationOperatorTokenizer: Tokenizer[AggregationOperator] = Tokenizer[AggregationOperator] {
     case AggregationOperator.`size` => stmt"COUNT"
-    case o                          => fail(s"Cql doesn't support '$o' aggregations")
+    case o                          => fail(s"Cypher doesn't support '$o' aggregations")
   }
 
   implicit val binaryOperatorTokenizer: Tokenizer[BinaryOperator] = Tokenizer[BinaryOperator] {
@@ -76,20 +76,27 @@ trait CypherIdiom extends Idiom {
     case NumericOperator.`<=`   => stmt"<="
     case NumericOperator.`+`    => stmt"+"
     case SetOperator.`contains` => stmt"IN"
-    case other                  => fail(s"Cql doesn't support the '$other' operator.")
+    case other                  => fail(s"Cypher doesn't support the '$other' operator.")
   }
 
-  implicit def propertyTokenizer(implicit valueTokenizer: Tokenizer[Value], identTokenizer: Tokenizer[Ident], strategy: NamingStrategy): Tokenizer[Property] =
+  implicit def propertyTokenizer(implicit valueTokenizer: Tokenizer[Value], identTokenizer: Tokenizer[Ident], strategy: NamingStrategy): Tokenizer[Property] = {
+    def unnest(ast: Ast): Ast =
+      ast match {
+        case Property(a, _) => unnest(a)
+        case a              => a
+      }
+
     Tokenizer[Property] {
-      case Property(_, name) => strategy.column(name).token
+      case Property(ast, name) => stmt"${scopedTokenizer(unnest(ast))}.${strategy.column(name).token}"
     }
+  }
 
   implicit def valueTokenizer(implicit strategy: NamingStrategy): Tokenizer[Value] = Tokenizer[Value] {
     case Constant(v: String) => stmt"'${v.token}'"
     case Constant(())        => stmt"1"
     case Constant(v)         => stmt"${v.toString.token}"
     case Tuple(values)       => stmt"${values.token}"
-    case NullValue           => fail("Cql doesn't support null values.")
+    case NullValue           => fail("Cypher doesn't support null values.")
   }
 
   implicit def infixTokenizer(implicit propertyTokenizer: Tokenizer[Property], strategy: NamingStrategy, queryTokenizer: Tokenizer[Query]): Tokenizer[Infix] = Tokenizer[Infix] {
@@ -120,5 +127,14 @@ trait CypherIdiom extends Idiom {
         fail(s"not implemented yet")
     }
   }
+
+  implicit def sourceTokenizer(implicit strategy: NamingStrategy): Tokenizer[FromContext] = Tokenizer[FromContext] {
+    case NodeContext(name, alias) => stmt"(${strategy.default(alias).token}:${name.token})"
+  }
+
+  protected def scopedTokenizer[A <: Ast](ast: A)(implicit token: Tokenizer[A]) =
+    ast match {
+      case _ => ast.token
+    }
 
 }

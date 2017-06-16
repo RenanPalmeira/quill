@@ -8,14 +8,14 @@ class CypherIdiomSpec extends Spec {
 
   "query" - {
     "map" in {
-      case class Person(age: Int)
+      case class Person(name: String, age: Int)
 
       val q = quote {
         query[Person]
       }
 
       mirrorContext.run(q).string mustEqual
-        "MATCH (Person:Person) RETURN Person"
+        "MATCH (x:Person) RETURN x.name, x.age"
     }
   }
 }
