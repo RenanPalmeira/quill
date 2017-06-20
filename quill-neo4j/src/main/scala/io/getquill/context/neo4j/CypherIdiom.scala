@@ -43,8 +43,17 @@ trait CypherIdiom extends Idiom {
     }
 
   implicit def cypherQueryTokenizer(implicit strategy: NamingStrategy): Tokenizer[CypherQuery] = Tokenizer[CypherQuery] {
-    case CypherQuery(node, select) =>
-      stmt"MATCH ${node.token} RETURN ${select.token}"
+    case CypherQuery(node, filter, select) =>
+
+      val withEntity = stmt"MATCH ${node.token}"
+
+      val withFilter =
+        filter match {
+          case None    => withEntity
+          case Some(f) => stmt"$withEntity WHERE ${f.token}"
+        }
+
+      stmt"$withFilter RETURN ${select.token}"
   }
 
   implicit def entityTokenizer(implicit strategy: NamingStrategy): Tokenizer[Entity] = Tokenizer[Entity] {
@@ -56,27 +65,40 @@ trait CypherIdiom extends Idiom {
   }
 
   implicit def operationTokenizer(implicit strategy: NamingStrategy): Tokenizer[Operation] = Tokenizer[Operation] {
-    case BinaryOperation(a, op @ SetOperator.`contains`, b) => stmt"${b.token} ${op.token} (${a.token})"
-    case BinaryOperation(a, op, b)                          => stmt"${a.token} ${op.token} ${b.token}"
-    case e: UnaryOperation                                  => fail(s"Cypher doesn't support unary operations. Found: '$e'")
-    case e: FunctionApply                                   => fail(s"Cypher doesn't support functions. Found: '$e'")
+    case UnaryOperation(op, ast)                              => stmt"${op.token} (${ast.token})"
+    case BinaryOperation(a, EqualityOperator.`==`, NullValue) => stmt"${scopedTokenizer(a)} IS NULL"
+    case BinaryOperation(NullValue, EqualityOperator.`==`, b) => stmt"${scopedTokenizer(b)} IS NULL"
+    case BinaryOperation(a, EqualityOperator.`!=`, NullValue) => stmt"${scopedTokenizer(a)} IS NOT NULL"
+    case BinaryOperation(NullValue, EqualityOperator.`!=`, b) => stmt"${scopedTokenizer(b)} IS NOT NULL"
+    case BinaryOperation(a, op @ SetOperator.`contains`, b)   => stmt"${scopedTokenizer(b)} ${op.token} (${a.token})"
+    case BinaryOperation(a, op, b)                            => stmt"${scopedTokenizer(a)} ${op.token} ${scopedTokenizer(b)}"
+    case e: FunctionApply                                     => fail(s"Can't translate the ast to Cypher: '$e'")
+  }
+
+  implicit val unaryOperatorTokenizer: Tokenizer[UnaryOperator] = Tokenizer[UnaryOperator] {
+    case NumericOperator.`-`          => stmt"-"
+    case BooleanOperator.`!`          => stmt"NOT"
+    case StringOperator.`toUpperCase` => stmt""
+    case StringOperator.`toLowerCase` => stmt""
+    case StringOperator.`toLong`      => stmt"" // cast is implicit
+    case StringOperator.`toInt`       => stmt"" // cast is implicit
+    case SetOperator.`isEmpty`        => stmt""
+    case SetOperator.`nonEmpty`       => stmt""
   }
 
   implicit val aggregationOperatorTokenizer: Tokenizer[AggregationOperator] = Tokenizer[AggregationOperator] {
-    case AggregationOperator.`size` => stmt"COUNT"
-    case o                          => fail(s"Cypher doesn't support '$o' aggregations")
+    case o => fail(s"Cypher doesn't support '$o' aggregations")
   }
 
   implicit val binaryOperatorTokenizer: Tokenizer[BinaryOperator] = Tokenizer[BinaryOperator] {
-    case EqualityOperator.`==`  => stmt"="
-    case BooleanOperator.`&&`   => stmt"AND"
-    case NumericOperator.`>`    => stmt">"
-    case NumericOperator.`>=`   => stmt">="
-    case NumericOperator.`<`    => stmt"<"
-    case NumericOperator.`<=`   => stmt"<="
-    case NumericOperator.`+`    => stmt"+"
-    case SetOperator.`contains` => stmt"IN"
-    case other                  => fail(s"Cypher doesn't support the '$other' operator.")
+    case EqualityOperator.`==` => stmt"="
+    case BooleanOperator.`&&`  => stmt"AND"
+    case BooleanOperator.`||`  => stmt"OR"
+    case NumericOperator.`>`   => stmt">"
+    case NumericOperator.`>=`  => stmt">="
+    case NumericOperator.`<`   => stmt"<"
+    case NumericOperator.`<=`  => stmt"<="
+    case other                 => fail(s"Cypher doesn't support the '$other' operator.")
   }
 
   implicit def propertyTokenizer(implicit valueTokenizer: Tokenizer[Value], identTokenizer: Tokenizer[Ident], strategy: NamingStrategy): Tokenizer[Property] = {
@@ -134,7 +156,10 @@ trait CypherIdiom extends Idiom {
 
   protected def scopedTokenizer[A <: Ast](ast: A)(implicit token: Tokenizer[A]) =
     ast match {
-      case _ => ast.token
+      case _: Query           => stmt"(${ast.token})"
+      case _: BinaryOperation => stmt"(${ast.token})"
+      case _: Tuple           => stmt"(${ast.token})"
+      case _                  => ast.token
     }
 
 }
